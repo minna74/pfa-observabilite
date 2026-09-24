@@ -1,0 +1,145 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: observability
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus.observability.svc.cluster.local:9090
+        isDefault: true
+      - name: Loki
+        uid: loki
+        type: loki
+        access: proxy
+        url: http://loki.observability.svc.cluster.local:3100
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        access: proxy
+        url: http://tempo.observability.svc.cluster.local:3200
+        jsonData:
+          nodeGraph:
+            enabled: true
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: "-5m"
+            spanEndTimeShift: "5m"
+            filterByTraceID: false
+            filterBySpanID: false
+            tags:
+              - key: service.name
+                value: service_name
+          tracesToMetrics:
+            datasourceUid: prometheus
+            spanStartTimeShift: "-5m"
+            spanEndTimeShift: "5m"
+            tags:
+              - key: service.name
+                value: service_name
+            queries:
+              - name: Requetes par seconde
+                query: sum(rate(traces_span_metrics_calls_total{$$__tags}[1m]))
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: observability
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: pfa
+        folder: PFA
+        type: file
+        disableDeletion: false
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      securityContext:
+        fsGroup: 472
+      containers:
+        - name: grafana
+          # Version a ajuster si besoin (12.x testee pour ce format de provisioning)
+          image: grafana/grafana:12.2.0
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: admin
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: admin
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+            - name: GF_ANALYTICS_CHECK_FOR_UPDATES
+              value: "false"
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 512Mi
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboards
+          configMap:
+            name: grafana-dashboard-boutique
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000

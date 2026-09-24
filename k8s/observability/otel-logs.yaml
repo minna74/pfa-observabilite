@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-logs-conf
+  namespace: observability
+data:
+  collector.yaml: |
+    receivers:
+      filelog:
+        include:
+          - /var/log/pods/online-boutique_*/*/*.log
+        exclude:
+          - /var/log/pods/online-boutique_otel-collector-*/*/*.log
+        start_at: end
+        include_file_path: true
+        include_file_name: false
+        operators:
+          - type: container
+            id: container-parser
+
+    processors:
+      memory_limiter:
+        check_interval: 5s
+        limit_mib: 160
+        spike_limit_mib: 40
+      # service.name = nom du deployment (pod sans le suffixe de hash), pour
+      # correspondre au service.name des traces et permettre le lien Tempo -> Loki
+      transform/service:
+        log_statements:
+          - context: resource
+            statements:
+              - 'set(resource.attributes["service.name"], resource.attributes["k8s.pod.name"])'
+              - 'replace_pattern(resource.attributes["service.name"], "^(.+)-[a-z0-9]+-[a-z0-9]+$$", "$$1")'
+      batch:
+
+    exporters:
+      otlphttp/loki:
+        endpoint: "http://loki.observability.svc.cluster.local:3100/otlp"
+
+    service:
+      pipelines:
+        logs:
+          receivers: [filelog]
+          processors: [memory_limiter, transform/service, batch]
+          exporters: [otlphttp/loki]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-logs
+  namespace: observability
+spec:
+  selector:
+    matchLabels:
+      app: otel-logs
+  template:
+    metadata:
+      labels:
+        app: otel-logs
+    spec:
+      containers:
+        - name: otel-logs
+          image: otel/opentelemetry-collector-contrib:0.135.0
+          args: ["--config=/etc/otel/collector.yaml"]
+          securityContext:
+            runAsUser: 0
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel
+            - name: varlogpods
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: otel-logs-conf
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers

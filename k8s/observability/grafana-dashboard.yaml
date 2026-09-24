@@ -1,0 +1,180 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-boutique
+  namespace: observability
+data:
+  boutique.json: |
+    {
+      "uid": "pfa-boutique",
+      "title": "Online Boutique - Vue d'ensemble M.E.L.T",
+      "tags": [
+        "pfa",
+        "observabilite"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Requetes par seconde (par service)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind=\"SPAN_KIND_SERVER\", span_name!~\".*grpc.health.*\"}[1m]))",
+              "legendFormat": "{{service_name}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Erreurs par seconde (par service)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\", span_name!~\".*grpc.health.*\"}[1m]))",
+              "legendFormat": "{{service_name}}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Latence p95 (par service)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(traces_span_metrics_duration_milliseconds_bucket{span_kind=\"SPAN_KIND_SERVER\", span_name!~\".*grpc.health.*\"}[1m])))",
+              "legendFormat": "{{service_name}}"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "logs",
+          "title": "Logs (namespace online-boutique)",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 8
+          },
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "{k8s_namespace_name=\"online-boutique\"}",
+              "queryType": "range"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "table",
+          "title": "Traces recentes (frontend)",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 24,
+            "x": 0,
+            "y": 18
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "tempo",
+                "uid": "tempo"
+              },
+              "queryType": "traceql",
+              "query": "{ resource.service.name = \"frontend\" }",
+              "limit": 20,
+              "tableType": "traces"
+            }
+          ]
+        }
+      ]
+    }
